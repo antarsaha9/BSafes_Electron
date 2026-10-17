@@ -22,4 +22,14 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   listItems: (body) => ipcRenderer.invoke('listItems', body),
   putS3Object: (s3Key, data) => ipcRenderer.invoke('putS3Object', s3Key, data),
   updateMemberLastUpdatedTime: (authId, lastUpdatedTime) => ipcRenderer.invoke('updateMemberLastUpdatedTime', authId, lastUpdatedTime),
+  // Export Backup / Open Backup: file data is passed as Uint8Array in both directions.
+  chooseBackupFolder: (options) => ipcRenderer.invoke('backup:chooseFolder', options),
+  checkBackupFolder: (path, options) => ipcRenderer.invoke('backup:checkFolder', path, options),
+  writeBackupFile: (rootPath, relPath, data) => ipcRenderer.invoke('backup:writeFile', rootPath, relPath, data),
+  beginBackupFile: (rootPath, relPath) => ipcRenderer.invoke('backup:beginFile', rootPath, relPath),
+  appendBackupFile: (fileId, data) => ipcRenderer.invoke('backup:appendFile', fileId, data),
+  finishBackupFile: (fileId) => ipcRenderer.invoke('backup:finishFile', fileId),
+  abortBackupFile: (fileId) => ipcRenderer.invoke('backup:abortFile', fileId),
+  readBackupFile: (rootPath, relPath) => ipcRenderer.invoke('backup:readFile', rootPath, relPath),
+  showBackupFolder: (path) => ipcRenderer.invoke('backup:showFolder', path),
 })
