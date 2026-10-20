@@ -32,4 +32,7 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   abortBackupFile: (fileId) => ipcRenderer.invoke('backup:abortFile', fileId),
   readBackupFile: (rootPath, relPath) => ipcRenderer.invoke('backup:readFile', rootPath, relPath),
   showBackupFolder: (path) => ipcRenderer.invoke('backup:showFolder', path),
+  hashBackupFile: (rootPath, relPath, expectedSize) => ipcRenderer.invoke('backup:hashFile', rootPath, relPath, expectedSize),
+  listBackupFolder: (rootPath, relPath) => ipcRenderer.invoke('backup:listFolder', rootPath, relPath),
+  removeBackupEntry: (rootPath, relPath) => ipcRenderer.invoke('backup:removeEntry', rootPath, relPath),
 })

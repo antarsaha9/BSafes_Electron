@@ -34,10 +34,17 @@ const fail = (error, code) => ({ status: 'error', error: String((error && error.
 const isInside = (parent, child) => child === parent || child.startsWith(parent + path.sep);
 
 // Returns the full path of relPath inside rootPath, or throws if it would land outside the approved folder.
-const resolveInside = async (rootPath, relPath, { createParents = false } = {}) => {
+// allowRoot: an empty relPath (or '.') means the folder itself.
+// followTarget: the entry is read through, so its own real path (not just its parent's) must be inside; throws ENOENT if missing.
+// allowPartial: relPath may name a .partial file.
+const resolveInside = async (rootPath, relPath, { createParents = false, allowRoot = false, followTarget = false, allowPartial = false } = {}) => {
     if (!(await isApproved(rootPath))) throw new Error('This folder was not chosen by the user.');
     const root = path.resolve(rootPath);
-    if (typeof relPath !== 'string' || !relPath || relPath.includes('\0') || path.isAbsolute(relPath) || relPath.endsWith('.partial')) {
+    if (allowRoot && (relPath === '' || relPath === '.')) {
+        await fsp.realpath(root);
+        return root;
+    }
+    if (typeof relPath !== 'string' || !relPath || relPath.includes('\0') || path.isAbsolute(relPath) || (!allowPartial && relPath.endsWith('.partial'))) {
         throw new Error('Invalid file path.');
     }
     const full = path.resolve(root, relPath);
@@ -48,8 +55,11 @@ const resolveInside = async (rootPath, relPath, { createParents = false } = {}) 
     const realRoot = await fsp.realpath(root);
     const realParent = await fsp.realpath(parent);
     if (!isInside(realRoot, realParent)) throw new Error('Path is outside the backup folder.');
+    if (followTarget && !isInside(realRoot, await fsp.realpath(full))) throw new Error('Path is outside the backup folder.');
     return full;
 }
+
+const failWithCode = (error) => (error && error.code === 'ENOENT' ? fail('File not found', 'ENOENT') : fail(error));
 
 const toBuffer = (data) => {
     if (!ArrayBuffer.isView(data)) throw new Error('File data must be a Uint8Array.');
@@ -215,11 +225,51 @@ const abortBackupFile = async (event, fileId) => {
 
 const readBackupFile = async (event, rootPath, relPath) => {
     try {
-        const full = await resolveInside(rootPath, relPath);
+        const full = await resolveInside(rootPath, relPath, { followTarget: true });
         const buffer = await fsp.readFile(full);
         return ok({ data: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength) });
     } catch (error) {
-        return error && error.code === 'ENOENT' ? fail('File not found', 'ENOENT') : fail(error);
+        return failWithCode(error);
+    }
+}
+
+const hashBackupFile = async (event, rootPath, relPath, expectedSize) => {
+    try {
+        const full = await resolveInside(rootPath, relPath, { followTarget: true });
+        const stat = await fsp.stat(full);
+        if (!stat.isFile()) throw new Error('Not a file.');
+        if (typeof expectedSize === 'number' && stat.size !== expectedSize) return ok({ size: stat.size, sha256: null });
+        const hash = crypto.createHash('sha256');
+        let size = 0;
+        for await (const chunk of fs.createReadStream(full)) {
+            hash.update(chunk);
+            size += chunk.length;
+        }
+        return ok({ size, sha256: hash.digest('hex') });
+    } catch (error) {
+        return failWithCode(error);
+    }
+}
+
+const listBackupFolder = async (event, rootPath, relPath) => {
+    try {
+        const full = await resolveInside(rootPath, relPath, { allowRoot: true, followTarget: true });
+        const dirents = await fsp.readdir(full, { withFileTypes: true });
+        return ok({ entries: dirents.map((dirent) => ({ name: dirent.name, isDirectory: dirent.isDirectory() })) });
+    } catch (error) {
+        return failWithCode(error);
+    }
+}
+
+const removeBackupEntry = async (event, rootPath, relPath) => {
+    try {
+        // Not followTarget: removing a symlink deletes the link itself, never what it points to.
+        const full = await resolveInside(rootPath, relPath, { allowPartial: true });
+        await fsp.lstat(full);
+        await fsp.rm(full, { recursive: true });
+        return ok();
+    } catch (error) {
+        return failWithCode(error);
     }
 }
 
@@ -243,6 +293,9 @@ const registerBackupFolderHandlers = () => {
     ipcMain.handle('backup:abortFile', abortBackupFile);
     ipcMain.handle('backup:readFile', readBackupFile);
     ipcMain.handle('backup:showFolder', showBackupFolder);
+    ipcMain.handle('backup:hashFile', hashBackupFile);
+    ipcMain.handle('backup:listFolder', listBackupFolder);
+    ipcMain.handle('backup:removeEntry', removeBackupEntry);
 
     // Don't leave .partial files behind when the app quits mid-export.
     app.on('before-quit', () => {
