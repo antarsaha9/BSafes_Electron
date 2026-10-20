@@ -35,4 +35,5 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   hashBackupFile: (rootPath, relPath, expectedSize) => ipcRenderer.invoke('backup:hashFile', rootPath, relPath, expectedSize),
   listBackupFolder: (rootPath, relPath) => ipcRenderer.invoke('backup:listFolder', rootPath, relPath),
   removeBackupEntry: (rootPath, relPath) => ipcRenderer.invoke('backup:removeEntry', rootPath, relPath),
+  openBackupInBrowser: (rootPath) => ipcRenderer.invoke('backup:openInBrowser', rootPath),
 })

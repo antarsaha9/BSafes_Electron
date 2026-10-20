@@ -3,6 +3,7 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('node:path');
 const crypto = require('crypto');
+const { pathToFileURL } = require('node:url');
 
 // Folders the user picked with chooseBackupFolder. Persisted so a remembered folder can be reused after a restart.
 const approvedFile = () => path.join(app.getPath('userData'), 'backupFolders.json');
@@ -283,6 +284,17 @@ const showBackupFolder = async (event, folder) => {
     }
 }
 
+const openBackupInBrowser = async (event, rootPath) => {
+    try {
+        const full = await resolveInside(rootPath, 'index.html', { followTarget: true });
+        if (!(await fsp.stat(full)).isFile()) return fail('File not found', 'ENOENT');
+        await shell.openExternal(pathToFileURL(full).href);
+        return ok();
+    } catch (error) {
+        return failWithCode(error);
+    }
+}
+
 const registerBackupFolderHandlers = () => {
     ipcMain.handle('backup:chooseFolder', chooseBackupFolder);
     ipcMain.handle('backup:checkFolder', checkBackupFolder);
@@ -296,6 +308,7 @@ const registerBackupFolderHandlers = () => {
     ipcMain.handle('backup:hashFile', hashBackupFile);
     ipcMain.handle('backup:listFolder', listBackupFolder);
     ipcMain.handle('backup:removeEntry', removeBackupEntry);
+    ipcMain.handle('backup:openInBrowser', openBackupInBrowser);
 
     // Don't leave .partial files behind when the app quits mid-export.
     app.on('before-quit', () => {
