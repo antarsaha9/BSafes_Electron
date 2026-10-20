@@ -4,6 +4,7 @@ const fsp = fs.promises;
 const path = require('node:path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('node:url');
+const { execFile, spawn } = require('node:child_process');
 
 // Folders the user picked with chooseBackupFolder. Persisted so a remembered folder can be reused after a restart.
 const approvedFile = () => path.join(app.getPath('userData'), 'backupFolders.json');
@@ -284,11 +285,36 @@ const showBackupFolder = async (event, folder) => {
     }
 }
 
+// The default app for .html files may be an editor, so open the file with the app that handles https:// links,
+// which is the user's default web browser. Falls back to the .html default app if that can't be found or started.
+const openInDefaultBrowser = async (file) => {
+    try {
+        if (process.platform === 'darwin' || process.platform === 'win32') {
+            const browser = await app.getApplicationInfoForProtocol('https://');
+            if (browser && browser.path) {
+                if (process.platform === 'darwin') {
+                    await new Promise((resolve, reject) => execFile('open', ['-a', browser.path, file], (err) => (err ? reject(err) : resolve())));
+                } else {
+                    await new Promise((resolve, reject) => {
+                        const child = spawn(browser.path, [file], { detached: true, stdio: 'ignore' });
+                        child.once('error', reject);
+                        child.once('spawn', () => { child.unref(); resolve(); });
+                    });
+                }
+                return;
+            }
+        }
+    } catch (error) {
+        console.log('Could not open the backup with the default browser, using the default .html app instead:', error);
+    }
+    await shell.openExternal(pathToFileURL(file).href);
+}
+
 const openBackupInBrowser = async (event, rootPath) => {
     try {
         const full = await resolveInside(rootPath, 'index.html', { followTarget: true });
         if (!(await fsp.stat(full)).isFile()) return fail('File not found', 'ENOENT');
-        await shell.openExternal(pathToFileURL(full).href);
+        await openInDefaultBrowser(full);
         return ok();
     } catch (error) {
         return failWithCode(error);
