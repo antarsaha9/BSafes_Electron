@@ -275,6 +275,59 @@ const removeBackupEntry = async (event, rootPath, relPath) => {
     }
 }
 
+const lstatOrNull = (full) => fsp.lstat(full).catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+});
+
+// Makes toRelPath a hard link to fromRelPath (the same file on disk), or a copy where hard links aren't supported.
+const linkBackupFile = async (event, rootPath, fromRelPath, toRelPath) => {
+    let partial;
+    try {
+        const from = await resolveInside(rootPath, fromRelPath, { followTarget: true });
+        // Link to the real file: macOS link() follows a symlink and Linux doesn't.
+        const realFrom = await fsp.realpath(from);
+        const fromStat = await fsp.stat(realFrom);
+        if (!fromStat.isFile()) throw new Error('Not a file.');
+        const to = await resolveInside(rootPath, toRelPath, { createParents: true });
+        const toStat = await lstatOrNull(to);
+        // Already the same file. rename() onto another link of the same file does nothing, so it must be skipped.
+        if (toStat && toStat.dev === fromStat.dev && toStat.ino === fromStat.ino) return ok({ linked: true });
+        partial = to + '.partial';
+        await fsp.rm(partial, { force: true });
+        let linked = true;
+        try {
+            await fsp.link(realFrom, partial);
+        } catch (error) {
+            if (error.code === 'ENOENT') throw error;
+            // For example FAT/exFAT drives, or NTFS's 1023-link limit. FICLONE is a free copy-on-write clone on APFS/Btrfs.
+            linked = false;
+            await fsp.copyFile(realFrom, partial, fs.constants.COPYFILE_FICLONE);
+        }
+        if (toStat && toStat.isDirectory()) await fsp.rm(to, { recursive: true });
+        await fsp.rename(partial, to);
+        return ok({ linked });
+    } catch (error) {
+        if (partial) await fsp.rm(partial, { force: true }).catch(() => {});
+        return failWithCode(error);
+    }
+}
+
+// Sets the Hidden attribute in Windows File Explorer. macOS and Linux already hide names starting with '.'.
+const hideBackupEntry = async (event, rootPath, relPath) => {
+    try {
+        const full = await resolveInside(rootPath, relPath);
+        await fsp.lstat(full);
+        if (process.platform === 'win32') {
+            const attrib = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'attrib.exe');
+            await new Promise((resolve, reject) => execFile(attrib, ['+h', full], { windowsHide: true }, (err) => (err ? reject(err) : resolve())));
+        }
+        return ok();
+    } catch (error) {
+        return failWithCode(error);
+    }
+}
+
 const showBackupFolder = async (event, folder) => {
     try {
         if (!(await isApproved(folder))) return fail('This folder was not chosen by the user.');
@@ -332,6 +385,8 @@ const registerBackupFolderHandlers = () => {
     ipcMain.handle('backup:readFile', readBackupFile);
     ipcMain.handle('backup:showFolder', showBackupFolder);
     ipcMain.handle('backup:hashFile', hashBackupFile);
+    ipcMain.handle('backup:linkFile', linkBackupFile);
+    ipcMain.handle('backup:hideEntry', hideBackupEntry);
     ipcMain.handle('backup:listFolder', listBackupFolder);
     ipcMain.handle('backup:removeEntry', removeBackupEntry);
     ipcMain.handle('backup:openInBrowser', openBackupInBrowser);

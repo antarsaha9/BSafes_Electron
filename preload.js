@@ -36,4 +36,6 @@ contextBridge.exposeInMainWorld('desktopAPI', {
   listBackupFolder: (rootPath, relPath) => ipcRenderer.invoke('backup:listFolder', rootPath, relPath),
   removeBackupEntry: (rootPath, relPath) => ipcRenderer.invoke('backup:removeEntry', rootPath, relPath),
   openBackupInBrowser: (rootPath) => ipcRenderer.invoke('backup:openInBrowser', rootPath),
+  linkBackupFile: (rootPath, fromRelPath, toRelPath) => ipcRenderer.invoke('backup:linkFile', rootPath, fromRelPath, toRelPath),
+  hideBackupEntry: (rootPath, relPath) => ipcRenderer.invoke('backup:hideEntry', rootPath, relPath),
 })
