@@ -8,7 +8,7 @@ const http = require('http');
 
 const { dbAll, dbGet, dbRun } = require("./dbHelper.js")
 const { fsGetS3Object, fsPutS3Object, fsIsS3ObjectExisted, dataFolderPath } = require("./s3Helper.js");
-const { registerBackupFolderHandlers } = require("./backupFolder.js");
+const { registerExportFolderHandlers } = require("./exportFolder.js");
 
 var databaseFile = path.join(dataFolderPath, 'BSafes.db');
 
@@ -802,7 +802,7 @@ const setup = () => {
         ipcMain.handle('listItems', listItems);
         ipcMain.handle('putS3Object', putS3Object);
         ipcMain.handle('updateMemberLastUpdatedTime', updateMemberLastUpdatedTime);
-        registerBackupFolderHandlers();
+        registerExportFolderHandlers();
     }
     const setupLocalBackupDataFolder = () => {
         try {

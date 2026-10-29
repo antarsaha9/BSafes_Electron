@@ -6,8 +6,8 @@ const crypto = require('crypto');
 const { pathToFileURL } = require('node:url');
 const { execFile, spawn } = require('node:child_process');
 
-// Folders the user picked with chooseBackupFolder. Persisted so a remembered folder can be reused after a restart.
-const approvedFile = () => path.join(app.getPath('userData'), 'backupFolders.json');
+// Folders the user picked with chooseExportFolder. Persisted so a remembered folder can be reused after a restart.
+const approvedFile = () => path.join(app.getPath('userData'), 'exportFolders.json');
 let approvedPromise = null; // Promise<Set of resolved folder paths>
 
 const loadApproved = () => {
@@ -50,14 +50,14 @@ const resolveInside = async (rootPath, relPath, { createParents = false, allowRo
         throw new Error('Invalid file path.');
     }
     const full = path.resolve(root, relPath);
-    if (!full.startsWith(root + path.sep)) throw new Error('Path is outside the backup folder.');
+    if (!full.startsWith(root + path.sep)) throw new Error('Path is outside the export folder.');
     const parent = path.dirname(full);
     if (createParents) await fsp.mkdir(parent, { recursive: true });
     // Block symlinks that point outside the folder.
     const realRoot = await fsp.realpath(root);
     const realParent = await fsp.realpath(parent);
-    if (!isInside(realRoot, realParent)) throw new Error('Path is outside the backup folder.');
-    if (followTarget && !isInside(realRoot, await fsp.realpath(full))) throw new Error('Path is outside the backup folder.');
+    if (!isInside(realRoot, realParent)) throw new Error('Path is outside the export folder.');
+    if (followTarget && !isInside(realRoot, await fsp.realpath(full))) throw new Error('Path is outside the export folder.');
     return full;
 }
 
@@ -106,13 +106,13 @@ const getOpenFile = (event, fileId) => {
     return file;
 }
 
-const chooseBackupFolder = async (event, options) => {
+const chooseExportFolder = async (event, options) => {
     try {
         const purpose = options && options.purpose;
         const win = BrowserWindow.fromWebContents(event.sender);
         const dialogOptions = {
-            title: purpose === 'open' ? 'Open a BSafes backup' : 'Choose a folder for your backup',
-            buttonLabel: purpose === 'open' ? 'Open' : 'Save backup here',
+            title: purpose === 'open' ? 'Open a BSafes export' : 'Choose a folder to export to',
+            buttonLabel: purpose === 'open' ? 'Open' : 'Export here',
             properties: ['openDirectory', 'createDirectory'],
         };
         const result = win ? await dialog.showOpenDialog(win, dialogOptions) : await dialog.showOpenDialog(dialogOptions);
@@ -125,7 +125,7 @@ const chooseBackupFolder = async (event, options) => {
     }
 }
 
-const checkBackupFolder = async (event, folder, options) => {
+const checkExportFolder = async (event, folder, options) => {
     try {
         const stat = await fsp.stat(folder);
         if (!stat.isDirectory()) return ok({ exists: false, writable: false });
@@ -138,7 +138,7 @@ const checkBackupFolder = async (event, folder, options) => {
     }
 }
 
-const writeBackupFile = async (event, rootPath, relPath, data) => {
+const writeExportFile = async (event, rootPath, relPath, data) => {
     let partial;
     try {
         const full = await resolveInside(rootPath, relPath, { createParents: true });
@@ -153,7 +153,7 @@ const writeBackupFile = async (event, rootPath, relPath, data) => {
     }
 }
 
-const beginBackupFile = async (event, rootPath, relPath) => {
+const beginExportFile = async (event, rootPath, relPath) => {
     try {
         const full = await resolveInside(rootPath, relPath, { createParents: true });
         const partial = full + '.partial';
@@ -174,7 +174,7 @@ const beginBackupFile = async (event, rootPath, relPath) => {
     }
 }
 
-const appendBackupFile = async (event, fileId, data) => {
+const appendExportFile = async (event, fileId, data) => {
     try {
         const file = getOpenFile(event, fileId);
         const buffer = toBuffer(data);
@@ -192,7 +192,7 @@ const appendBackupFile = async (event, fileId, data) => {
     }
 }
 
-const finishBackupFile = async (event, fileId) => {
+const finishExportFile = async (event, fileId) => {
     let file;
     try {
         file = getOpenFile(event, fileId);
@@ -219,13 +219,13 @@ const finishBackupFile = async (event, fileId) => {
     }
 }
 
-const abortBackupFile = async (event, fileId) => {
+const abortExportFile = async (event, fileId) => {
     const file = openFiles.get(fileId);
     if (file && file.sender === event.sender) await abortFile(fileId);
     return ok();
 }
 
-const readBackupFile = async (event, rootPath, relPath) => {
+const readExportFile = async (event, rootPath, relPath) => {
     try {
         const full = await resolveInside(rootPath, relPath, { followTarget: true });
         const buffer = await fsp.readFile(full);
@@ -235,7 +235,7 @@ const readBackupFile = async (event, rootPath, relPath) => {
     }
 }
 
-const hashBackupFile = async (event, rootPath, relPath, expectedSize) => {
+const hashExportFile = async (event, rootPath, relPath, expectedSize) => {
     try {
         const full = await resolveInside(rootPath, relPath, { followTarget: true });
         const stat = await fsp.stat(full);
@@ -253,7 +253,7 @@ const hashBackupFile = async (event, rootPath, relPath, expectedSize) => {
     }
 }
 
-const listBackupFolder = async (event, rootPath, relPath) => {
+const listExportFolder = async (event, rootPath, relPath) => {
     try {
         const full = await resolveInside(rootPath, relPath, { allowRoot: true, followTarget: true });
         const dirents = await fsp.readdir(full, { withFileTypes: true });
@@ -263,7 +263,7 @@ const listBackupFolder = async (event, rootPath, relPath) => {
     }
 }
 
-const removeBackupEntry = async (event, rootPath, relPath) => {
+const removeExportEntry = async (event, rootPath, relPath) => {
     try {
         // Not followTarget: removing a symlink deletes the link itself, never what it points to.
         const full = await resolveInside(rootPath, relPath, { allowPartial: true });
@@ -281,7 +281,7 @@ const lstatOrNull = (full) => fsp.lstat(full).catch((error) => {
 });
 
 // Makes toRelPath a hard link to fromRelPath (the same file on disk), or a copy where hard links aren't supported.
-const linkBackupFile = async (event, rootPath, fromRelPath, toRelPath) => {
+const linkExportFile = async (event, rootPath, fromRelPath, toRelPath) => {
     let partial;
     try {
         const from = await resolveInside(rootPath, fromRelPath, { followTarget: true });
@@ -314,7 +314,7 @@ const linkBackupFile = async (event, rootPath, fromRelPath, toRelPath) => {
 }
 
 // Sets the Hidden attribute in Windows File Explorer. macOS and Linux already hide names starting with '.'.
-const hideBackupEntry = async (event, rootPath, relPath) => {
+const hideExportEntry = async (event, rootPath, relPath) => {
     try {
         const full = await resolveInside(rootPath, relPath);
         await fsp.lstat(full);
@@ -328,7 +328,7 @@ const hideBackupEntry = async (event, rootPath, relPath) => {
     }
 }
 
-const showBackupFolder = async (event, folder) => {
+const showExportFolder = async (event, folder) => {
     try {
         if (!(await isApproved(folder))) return fail('This folder was not chosen by the user.');
         const message = await shell.openPath(path.resolve(folder));
@@ -358,12 +358,12 @@ const openInDefaultBrowser = async (file) => {
             }
         }
     } catch (error) {
-        console.log('Could not open the backup with the default browser, using the default .html app instead:', error);
+        console.log('Could not open the export with the default browser, using the default .html app instead:', error);
     }
     await shell.openExternal(pathToFileURL(file).href);
 }
 
-const openBackupInBrowser = async (event, rootPath) => {
+const openExportInBrowser = async (event, rootPath) => {
     try {
         const full = await resolveInside(rootPath, 'index.html', { followTarget: true });
         if (!(await fsp.stat(full)).isFile()) return fail('File not found', 'ENOENT');
@@ -374,22 +374,22 @@ const openBackupInBrowser = async (event, rootPath) => {
     }
 }
 
-const registerBackupFolderHandlers = () => {
-    ipcMain.handle('backup:chooseFolder', chooseBackupFolder);
-    ipcMain.handle('backup:checkFolder', checkBackupFolder);
-    ipcMain.handle('backup:writeFile', writeBackupFile);
-    ipcMain.handle('backup:beginFile', beginBackupFile);
-    ipcMain.handle('backup:appendFile', appendBackupFile);
-    ipcMain.handle('backup:finishFile', finishBackupFile);
-    ipcMain.handle('backup:abortFile', abortBackupFile);
-    ipcMain.handle('backup:readFile', readBackupFile);
-    ipcMain.handle('backup:showFolder', showBackupFolder);
-    ipcMain.handle('backup:hashFile', hashBackupFile);
-    ipcMain.handle('backup:linkFile', linkBackupFile);
-    ipcMain.handle('backup:hideEntry', hideBackupEntry);
-    ipcMain.handle('backup:listFolder', listBackupFolder);
-    ipcMain.handle('backup:removeEntry', removeBackupEntry);
-    ipcMain.handle('backup:openInBrowser', openBackupInBrowser);
+const registerExportFolderHandlers = () => {
+    ipcMain.handle('export:chooseFolder', chooseExportFolder);
+    ipcMain.handle('export:checkFolder', checkExportFolder);
+    ipcMain.handle('export:writeFile', writeExportFile);
+    ipcMain.handle('export:beginFile', beginExportFile);
+    ipcMain.handle('export:appendFile', appendExportFile);
+    ipcMain.handle('export:finishFile', finishExportFile);
+    ipcMain.handle('export:abortFile', abortExportFile);
+    ipcMain.handle('export:readFile', readExportFile);
+    ipcMain.handle('export:showFolder', showExportFolder);
+    ipcMain.handle('export:hashFile', hashExportFile);
+    ipcMain.handle('export:linkFile', linkExportFile);
+    ipcMain.handle('export:hideEntry', hideExportEntry);
+    ipcMain.handle('export:listFolder', listExportFolder);
+    ipcMain.handle('export:removeEntry', removeExportEntry);
+    ipcMain.handle('export:openInBrowser', openExportInBrowser);
 
     // Don't leave .partial files behind when the app quits mid-export.
     app.on('before-quit', () => {
@@ -401,4 +401,4 @@ const registerBackupFolderHandlers = () => {
     });
 }
 
-module.exports = { registerBackupFolderHandlers };
+module.exports = { registerExportFolderHandlers };
